@@ -11,7 +11,7 @@
   <style>
     *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     body{margin:0;background:#0a0f1e;color:#f0f4ff;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;overscroll-behavior:none}
-    input{color-scheme:dark}
+    input,select{color-scheme:dark}
     input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none}
     @keyframes fadeIn{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
     @keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
@@ -20,12 +20,8 @@
 </head>
 <body>
 <div id="root"></div>
-
-<!-- React UMD -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-
-<!-- App as ES module (Firebase needs ESM) -->
 <script type="module">
 import { initializeApp }   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, orderBy, getDoc }
@@ -34,21 +30,21 @@ import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot, query, or
 const { useState, useMemo, useEffect } = React;
 const { createRoot } = ReactDOM;
 
-// ── Firebase ──────────────────────────────────────────────────────────────────
-const app = initializeApp({
-  apiKey: "AIzaSyCP-KPCSGuspg7Qz2IuAS1kM11D_90yfzw",
-  authDomain: "strom-tracker-28be4.firebaseapp.com",
-  projectId: "strom-tracker-28be4",
-  storageBucket: "strom-tracker-28be4.firebasestorage.app",
-  messagingSenderId: "353604410031",
-  appId: "1:353604410031:web:8d365e5a6724aa1a7f525a"
+const fbApp = initializeApp({
+  apiKey:"AIzaSyCP-KPCSGuspg7Qz2IuAS1kM11D_90yfzw",
+  authDomain:"strom-tracker-28be4.firebaseapp.com",
+  projectId:"strom-tracker-28be4",
+  storageBucket:"strom-tracker-28be4.firebasestorage.app",
+  messagingSenderId:"353604410031",
+  appId:"1:353604410031:web:8d365e5a6724aa1a7f525a"
 });
-const db = getFirestore(app);
-const COL = collection(db, "readings");
-const CFG = doc(db, "config", "settings");
+const db = getFirestore(fbApp);
+const COL   = (meter) => collection(db, meter==="mutter"?"readings_mutter":"readings");
+const CFG   = doc(db,"config","settings");
+const BKW_DATE = "2026-03-20";
 
-// ── Seed data ─────────────────────────────────────────────────────────────────
-const SEED = [
+// ── Seed data ──────────────────────────────────────────────────────────────────
+const SEED_MARTIN = [
   {date:"2026-01-27",value:12627},{date:"2026-01-30",value:12667},
   {date:"2026-02-20",value:12980},{date:"2026-02-24",value:13041},
   {date:"2026-02-27",value:13077},{date:"2026-03-03",value:13138},
@@ -62,248 +58,388 @@ const SEED = [
   {date:"2026-05-05",value:13758},{date:"2026-05-08",value:13790},
   {date:"2026-05-12",value:13822},{date:"2026-05-19",value:13889},
 ];
+const SEED_MUTTER = [
+  {date:"2026-01-27",value:7245},
+  {date:"2026-02-27",value:7420},
+  {date:"2026-03-03",value:7444},
+  {date:"2026-03-23",value:7545},
+  {date:"2026-03-24",value:7548},
+  {date:"2026-03-26",value:7560},
+  {date:"2026-03-30",value:7582},
+  {date:"2026-04-02",value:7598},
+  {date:"2026-04-11",value:7653},
+  {date:"2026-04-17",value:7687},
+  {date:"2026-04-21",value:7706},
+  {date:"2026-05-05",value:7776},
+  {date:"2026-05-08",value:7793},
+  {date:"2026-05-12",value:7807},
+  {date:"2026-05-19",value:7823},
+];
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const days = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
-const fmt  = (n,d=1) => n==null||isNaN(n)?"–":n.toFixed(d).replace(".",",");
-const eur  = n => n==null||isNaN(n)?"–":`${n.toFixed(2).replace(".",",")} €`;
-const dmy  = iso => { const [y,m,d]=iso.split("-"); return `${d}.${m}.${y}`; };
+// ── Helpers ────────────────────────────────────────────────────────────────────
+const daysB = (a,b) => Math.round((new Date(b)-new Date(a))/86400000);
+const fmt   = (n,d=1) => n==null||isNaN(n)?"–":n.toFixed(d).replace(".",",");
+const eur   = n => n==null||isNaN(n)?"–":`${n.toFixed(2).replace(".",",")} €`;
+const dmy   = iso => { const [y,m,d]=iso.split("-"); return `${d}.${m}.${y}`; };
+const e     = React.createElement;
 
-// ── Sub-components ────────────────────────────────────────────────────────────
-function Spark({data,color="#34d399",h=44}){
+// ── Sparkline ──────────────────────────────────────────────────────────────────
+function Spark({data,color="#34d399",h=44,bkwIdx=null}){
   if(!data||data.length<2) return null;
   const W=Math.min(window.innerWidth,430)-64;
   const mn=Math.min(...data),mx=Math.max(...data),r=mx-mn||1;
   const pts=data.map((v,i)=>`${(i/(data.length-1))*W},${h-((v-mn)/r)*(h-6)-3}`);
-  return React.createElement("svg",{width:W,height:h,style:{display:"block"}},
-    React.createElement("defs",null,
-      React.createElement("linearGradient",{id:"sg",x1:"0",y1:"0",x2:"0",y2:"1"},
-        React.createElement("stop",{offset:"0%",stopColor:color,stopOpacity:"0.28"}),
-        React.createElement("stop",{offset:"100%",stopColor:color,stopOpacity:"0"}))),
-    React.createElement("polygon",{points:`0,${h} ${pts.join(" ")} ${W},${h}`,fill:"url(#sg)"}),
-    React.createElement("polyline",{points:pts.join(" "),fill:"none",stroke:color,strokeWidth:"2.5",strokeLinecap:"round",strokeLinejoin:"round"})
+  const bx=bkwIdx!=null?(bkwIdx/(data.length-1))*W:null;
+  return e("svg",{width:W,height:h,style:{display:"block",overflow:"visible"}},
+    e("defs",null,e("linearGradient",{id:"sg",x1:"0",y1:"0",x2:"0",y2:"1"},
+      e("stop",{offset:"0%",stopColor:color,stopOpacity:"0.28"}),
+      e("stop",{offset:"100%",stopColor:color,stopOpacity:"0"}))),
+    e("polygon",{points:`0,${h} ${pts.join(" ")} ${W},${h}`,fill:"url(#sg)"}),
+    e("polyline",{points:pts.join(" "),fill:"none",stroke:color,strokeWidth:"2.5",strokeLinecap:"round",strokeLinejoin:"round"}),
+    bx!=null&&e("line",{x1:bx,y1:0,x2:bx,y2:h,stroke:"#fbbf24",strokeWidth:"1.5",strokeDasharray:"3,3"}),
+    bx!=null&&e("text",{x:bx+4,y:10,fill:"#fbbf24",fontSize:"8",fontWeight:"600"},"☀️ BKW")
   );
 }
 
-function Bars({data}){
+// ── Bars ───────────────────────────────────────────────────────────────────────
+function Bars({data,color}){
   if(!data.length) return null;
   const mx=Math.max(...data.map(d=>d.kwh));
-  return React.createElement("div",{style:{display:"flex",alignItems:"flex-end",gap:5,height:80,padding:"4px 0"}},
-    data.map((d,i)=>React.createElement("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}},
-      React.createElement("div",{style:{width:"100%",height:Math.max(4,(d.kwh/mx)*64),borderRadius:"3px 3px 0 0",
-        background:d.current?"linear-gradient(180deg,#34d399,#059669)":"rgba(255,255,255,0.14)",transition:"height .5s"}}),
-      React.createElement("span",{style:{fontSize:9,color:"rgba(255,255,255,0.5)"}},d.label)
+  return e("div",{style:{display:"flex",alignItems:"flex-end",gap:5,height:70,padding:"4px 0"}},
+    data.map((d,i)=>e("div",{key:i,style:{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}},
+      e("div",{style:{width:"100%",height:Math.max(4,(d.kwh/mx)*56),borderRadius:"3px 3px 0 0",
+        background:d.current?`linear-gradient(180deg,${color||"#34d399"},${color?"#7c3aed":"#059669"})`:
+          d.bkw?"linear-gradient(180deg,#fbbf24,#f59e0b)":"rgba(255,255,255,0.14)",transition:"height .5s"}}),
+      e("span",{style:{fontSize:9,color:"rgba(255,255,255,0.5)"}},d.label)
     ))
   );
 }
 
+// ── Delta badge ────────────────────────────────────────────────────────────────
 function Delta({v}){
   if(v==null||isNaN(v)) return null;
   const up=v>0;
-  return React.createElement("span",{style:{display:"inline-flex",alignItems:"center",gap:3,padding:"3px 10px",
-    borderRadius:99,fontSize:12,fontWeight:700,
+  return e("span",{style:{display:"inline-flex",alignItems:"center",gap:3,padding:"3px 8px",
+    borderRadius:99,fontSize:11,fontWeight:700,
     background:up?"rgba(239,68,68,0.18)":"rgba(52,211,153,0.18)",
     color:up?"#f87171":"#34d399"}},
-    (up?"▲ ":"▼ ")+fmt(Math.abs(v))+" kWh/Tag");
+    (up?"▲ ":"▼ ")+fmt(Math.abs(v))+" kWh/T");
 }
 
-// ── Main App ──────────────────────────────────────────────────────────────────
+// ── BKW card (only for Martin) ─────────────────────────────────────────────────
+function BkwCard({before,after,savings,yearlySavings,pricePerKwh}){
+  const pct=before>0?((before-after)/before*100):null;
+  return e("div",{style:{background:"linear-gradient(135deg,rgba(251,191,36,0.1),rgba(245,158,11,0.06))",
+    border:"1px solid rgba(251,191,36,0.2)",borderRadius:18,padding:16}},
+    e("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:12}},
+      e("span",{style:{fontSize:20}},"☀️"),
+      e("div",null,
+        e("div",{style:{fontSize:11,fontWeight:600,letterSpacing:1.2,color:"rgba(251,191,36,0.7)",textTransform:"uppercase"}},
+          "Balkonkraftwerk – seit "+dmy(BKW_DATE)),
+        e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.38)"}},"Einfluss auf Netzverbrauch")
+      )
+    ),
+    e("div",{style:{display:"grid",gridTemplateColumns:"1fr auto 1fr",gap:8,alignItems:"center",marginBottom:12}},
+      e("div",{style:{background:"rgba(239,68,68,0.1)",borderRadius:12,padding:"10px 12px",textAlign:"center"}},
+        e("div",{style:{fontSize:10,color:"rgba(239,68,68,0.7)",marginBottom:3}},"VOR BKW"),
+        e("div",{style:{fontSize:22,fontWeight:700,color:"#f87171"}},fmt(before)),
+        e("div",{style:{fontSize:10,color:"rgba(255,255,255,0.4)"}},"kWh/Tag")
+      ),
+      e("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",gap:4}},
+        e("span",{style:{fontSize:18,color:"#34d399"}},"→"),
+        pct!=null&&e("span",{style:{fontSize:11,fontWeight:700,color:"#34d399"}},"−"+fmt(pct,1)+"%")
+      ),
+      e("div",{style:{background:"rgba(52,211,153,0.1)",borderRadius:12,padding:"10px 12px",textAlign:"center"}},
+        e("div",{style:{fontSize:10,color:"rgba(52,211,153,0.7)",marginBottom:3}},"MIT BKW"),
+        e("div",{style:{fontSize:22,fontWeight:700,color:"#34d399"}},fmt(after)),
+        e("div",{style:{fontSize:10,color:"rgba(255,255,255,0.4)"}},"kWh/Tag")
+      )
+    ),
+    savings!=null&&e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}},
+      e("div",{style:{background:"rgba(255,255,255,0.04)",borderRadius:10,padding:"9px 12px"}},
+        e("div",{style:{fontSize:10,color:"rgba(255,255,255,0.4)",marginBottom:2}},"Einsparung / Tag"),
+        e("div",{style:{fontSize:16,fontWeight:700,color:"#fbbf24"}},fmt(savings)+" kWh"),
+        e("div",{style:{fontSize:10,color:"rgba(255,255,255,0.35)"}},eur(savings*pricePerKwh)+"/Tag")
+      ),
+      e("div",{style:{background:"rgba(255,255,255,0.04)",borderRadius:10,padding:"9px 12px"}},
+        e("div",{style:{fontSize:10,color:"rgba(255,255,255,0.4)",marginBottom:2}},"Hochr. Jahr"),
+        e("div",{style:{fontSize:16,fontWeight:700,color:"#fbbf24"}},fmt(yearlySavings,0)+" kWh"),
+        e("div",{style:{fontSize:10,color:"rgba(255,255,255,0.35)"}},eur(yearlySavings*pricePerKwh)+"/Jahr")
+      )
+    )
+  );
+}
+
+// ── Compute stats for one meter ────────────────────────────────────────────────
+function computeStats(sorted, cfg, isMutter){
+  if(sorted.length<2) return null;
+  const first=sorted[0], last=sorted[sorted.length-1];
+  const td=daysB(first.date,last.date), tk=last.value-first.value;
+  const apd=tk/td, py=apd*365;
+  const price = isMutter ? cfg.pricePerKwhMutter : cfg.pricePerKwh;
+  const base  = isMutter ? cfg.monthlyBaseMutter  : cfg.monthlyBase;
+  const yc=py*price+base*12, mc=py/12*price+base;
+
+  // 2-week windows
+  const now=new Date(last.date);
+  const t2=new Date(now);t2.setDate(t2.getDate()-14);
+  const t4=new Date(now);t4.setDate(t4.getDate()-28);
+  const w1=sorted.findLast(r=>new Date(r.date)<=t2);
+  const w2=sorted.findLast(r=>new Date(r.date)<=t4);
+  let ac=null,ap=null,d14=null;
+  if(w1){const k=last.value-w1.value,d=daysB(w1.date,last.date);ac=d>0?k/d:null;}
+  if(w2&&w1){const k=w1.value-w2.value,d=daysB(w2.date,w1.date);ap=d>0?k/d:null;}
+  if(ac!=null&&ap!=null) d14=ac-ap;
+
+  // BKW split (only Martin)
+  let avgBefore=null,avgAfter=null,bkwSavings=null,bkwYearly=null,bkwSparkIdx=null;
+  if(!isMutter){
+    const bef=sorted.filter(r=>r.date<BKW_DATE);
+    const aft=sorted.filter(r=>r.date>=BKW_DATE);
+    if(bef.length>=2){const d=daysB(bef[0].date,bef[bef.length-1].date);if(d>0)avgBefore=(bef[bef.length-1].value-bef[0].value)/d;}
+    if(aft.length>=2){const d=daysB(aft[0].date,aft[aft.length-1].date);if(d>0)avgAfter=(aft[aft.length-1].value-aft[0].value)/d;}
+    if(avgBefore!=null&&avgAfter!=null){bkwSavings=avgBefore-avgAfter;bkwYearly=bkwSavings*365;}
+    bkwSparkIdx=sorted.slice(1).findIndex(r=>r.date>=BKW_DATE);
+  }
+
+  // monthly
+  const mo={};
+  for(let i=1;i<sorted.length;i++){
+    const p=sorted[i-1],c=sorted[i],mk=c.date.slice(0,7);
+    if(!mo[mk])mo[mk]={kwh:0,days:0,hasBkw:false};
+    mo[mk].kwh+=c.value-p.value;mo[mk].days+=daysB(p.date,c.date);
+    if(c.date>=BKW_DATE)mo[mk].hasBkw=true;
+  }
+  const ma=Object.entries(mo).sort(([a],[b])=>a.localeCompare(b))
+    .map(([k,v])=>({
+      label:["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"][+k.slice(5)-1],
+      kwh:v.kwh,days:v.days,avg:v.kwh/v.days,
+      current:k===last.date.slice(0,7),bkw:!isMutter&&v.hasBkw&&k>BKW_DATE.slice(0,7)
+    }));
+
+  const sd=sorted.slice(1).map((r,i)=>{const p=sorted[i],d=daysB(p.date,r.date);return d>0?(r.value-p.value)/d:null;}).filter(Boolean);
+
+  return {first,last,td,tk,apd,py,yc,mc,ac,ap,d14,ma,sd,avgBefore,avgAfter,bkwSavings,bkwYearly,bkwSparkIdx};
+}
+
+// ── Meter dashboard panel ──────────────────────────────────────────────────────
+function MeterPanel({sorted,cfg,isMutter}){
+  const stats=useMemo(()=>computeStats(sorted,cfg,isMutter),[sorted,cfg]);
+  if(!stats) return e("div",{style:{padding:20,color:"rgba(255,255,255,0.4)",fontSize:14}},"Noch keine Daten");
+  const price=isMutter?cfg.pricePerKwhMutter:cfg.pricePerKwh;
+  const color=isMutter?"#a78bfa":"#34d399";
+
+  const card={background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:18,padding:16};
+  const lbl={fontSize:11,fontWeight:600,letterSpacing:1.2,color:"rgba(255,255,255,0.38)",textTransform:"uppercase",marginBottom:10};
+  const Row=(k,v)=>e("div",{key:k,style:{display:"flex",justifyContent:"space-between",
+    borderBottom:"1px solid rgba(255,255,255,0.05)",paddingBottom:6,marginBottom:6}},
+    e("span",{style:{fontSize:12,color:"rgba(255,255,255,0.45)"}},k),
+    e("span",{style:{fontSize:12,fontWeight:600}},v));
+
+  return e("div",{style:{display:"flex",flexDirection:"column",gap:12}},
+    // trend card
+    e("div",{style:card},
+      e("div",{style:lbl},"Tagesverbrauch – letzte 2 Wochen"),
+      e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+        e("div",{style:{fontSize:32,fontWeight:700,letterSpacing:-1}},
+          fmt(stats.ac),e("span",{style:{fontSize:14,fontWeight:400,color:"rgba(255,255,255,0.4)",marginLeft:4}},"kWh/Tag")),
+        e(Delta,{v:stats.d14})
+      ),
+      e(Spark,{data:stats.sd,color,bkwIdx:!isMutter&&stats.bkwSparkIdx>=0?stats.bkwSparkIdx:null}),
+      stats.ap!=null&&e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.38)",marginTop:6}},
+        "Vorherige 2 Wochen: "+fmt(stats.ap)+" kWh/Tag")
+    ),
+    // BKW card only for Martin
+    !isMutter&&e(BkwCard,{before:stats.avgBefore,after:stats.avgAfter,
+      savings:stats.bkwSavings,yearlySavings:stats.bkwYearly,pricePerKwh:price}),
+    // KPIs
+    e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
+      [{l:"Ø Tag gesamt",v:fmt(stats.apd),u:"kWh"},
+       {l:"Hochrechn. Jahr",v:fmt(stats.py,0),u:"kWh"},
+       {l:"Jahreskosten",v:eur(stats.yc),u:"inkl. Grundgeb.",accent:color},
+       {l:"Monatskosten",v:eur(stats.mc),u:"Hochrechnung"},
+      ].map((k,i)=>e("div",{key:i,style:{...card,...(k.accent?{background:`linear-gradient(135deg,${isMutter?"rgba(124,58,237,0.2)":"rgba(5,150,105,0.22)"},rgba(0,0,0,0.1))`}:{})}},
+        e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.42)",marginBottom:4}},k.l),
+        e("div",{style:{fontSize:24,fontWeight:700,letterSpacing:-0.5,color:k.accent||"#f0f4ff",lineHeight:1}},k.v),
+        e("div",{style:{fontSize:10,color:"rgba(255,255,255,0.32)",marginTop:3}},k.u)
+      ))
+    ),
+    // monthly bars
+    e("div",{style:card},
+      e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+        e("div",{style:lbl},"Monatsverbrauch"),
+        !isMutter&&e("div",{style:{display:"flex",gap:8,fontSize:9}},
+          e("span",{style:{color:"rgba(255,255,255,0.4)"}},"⬜ ohne BKW"),
+          e("span",{style:{color:"#fbbf24"}},"🟨 mit BKW")
+        )
+      ),
+      e(Bars,{data:stats.ma,color}),
+      e("div",{style:{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}},
+        stats.ma.map((m,i)=>e("div",{key:i,style:{fontSize:10.5,padding:"3px 8px",borderRadius:7,
+          background:m.current?`${color}22`:m.bkw?"rgba(251,191,36,0.1)":"rgba(255,255,255,0.06)",
+          color:m.current?color:m.bkw?"#fbbf24":"rgba(255,255,255,0.45)"}},
+          m.label+": "+fmt(m.kwh,0)+" kWh"))
+      )
+    ),
+    // detail table
+    e("div",{style:card},
+      e("div",{style:lbl},"Details"),
+      [["Gesamt verbraucht",stats.tk.toLocaleString("de-DE")+" kWh"],
+       ["Erfasste Tage",stats.td+" Tage"],
+       ["Ablesungen",""+sorted.length],
+       ["Zählerstand Start",stats.first.value.toLocaleString("de-DE")+" kWh"],
+       ["Zählerstand aktuell",stats.last.value.toLocaleString("de-DE")+" kWh"],
+       ...((!isMutter&&stats.avgBefore!=null)?[
+         ["Ø Tag vor BKW",fmt(stats.avgBefore)+" kWh"],
+         ["Ø Tag mit BKW",fmt(stats.avgAfter)+" kWh"],
+         ["Einsparung / Jahr",fmt(stats.bkwYearly,0)+" kWh · "+eur((stats.bkwYearly||0)*price)],
+       ]:[]),
+       ["Preis / kWh",price.toFixed(4).replace(".",",")+" €"],
+      ].map(([k,v])=>Row(k,v))
+    )
+  );
+}
+
+// ── Main App ───────────────────────────────────────────────────────────────────
 function App(){
-  const [readings,  setReadings]  = useState([]);
-  const [cfg,       setCfg]       = useState({pricePerKwh:0.3017,monthlyBase:14.99});
-  const [tab,       setTab]       = useState("dashboard");
-  const [newDate,   setNewDate]   = useState(new Date().toISOString().slice(0,10));
-  const [newVal,    setNewVal]    = useState("");
-  const [toast,     setToast]     = useState(null);
-  const [status,    setStatus]    = useState("syncing"); // syncing|live|ok|error
-  const [ready,     setReady]     = useState(false);
-  const [seeding,   setSeeding]   = useState(false);
+  const [readingsM, setReadingsM] = useState([]);
+  const [readingsMu,setReadingsMu]= useState([]);
+  const [cfg, setCfg] = useState({
+    pricePerKwh:0.3017, monthlyBase:14.99,
+    pricePerKwhMutter:0.3017, monthlyBaseMutter:14.99,
+    bkwDate:BKW_DATE
+  });
+  const [meter,    setMeter]   = useState("martin"); // martin|mutter
+  const [tab,      setTab]     = useState("dashboard");
+  const [newDate,  setNewDate] = useState(new Date().toISOString().slice(0,10));
+  const [newVal,   setNewVal]  = useState("");
+  const [toast,    setToast]   = useState(null);
+  const [status,   setStatus]  = useState("syncing");
+  const [ready,    setReady]   = useState(false);
+  const [seededM,  setSeededM] = useState(false);
+  const [seededMu, setSeededMu]= useState(false);
 
-  // live listener
+  // live listeners
   useEffect(()=>{
-    const q = query(COL, orderBy("date","asc"));
-    const unsub = onSnapshot(q, snap=>{
-      if(snap.empty && !seeding){
-        setSeeding(true);
-        (async()=>{
-          for(const r of SEED) await setDoc(doc(COL,r.date),r);
-          setSeeding(false); setReady(true); setStatus("live");
-        })();
-      } else {
-        setReadings(snap.docs.map(d=>d.data()));
-        setStatus("live"); setReady(true);
-      }
-    }, ()=>setStatus("error"));
-    return ()=>unsub();
+    const q=query(COL("martin"),orderBy("date","asc"));
+    return onSnapshot(q,snap=>{
+      if(snap.empty&&!seededM){
+        setSeededM(true);
+        (async()=>{for(const r of SEED_MARTIN)await setDoc(doc(COL("martin"),r.date),r);})();
+      } else { setReadingsM(snap.docs.map(d=>d.data())); setStatus("live"); setReady(true); }
+    },()=>setStatus("error"));
   },[]);
 
-  // load settings once
   useEffect(()=>{
-    getDoc(CFG).then(s=>{ if(s.exists()) setCfg(s.data()); });
+    const q=query(COL("mutter"),orderBy("date","asc"));
+    return onSnapshot(q,snap=>{
+      if(snap.empty&&!seededMu){
+        setSeededMu(true);
+        (async()=>{for(const r of SEED_MUTTER)await setDoc(doc(COL("mutter"),r.date),r);})();
+      } else { setReadingsMu(snap.docs.map(d=>d.data())); setReady(true); }
+    },()=>{});
   },[]);
 
-  const sorted = useMemo(()=>[...readings].sort((a,b)=>a.date.localeCompare(b.date)),[readings]);
+  useEffect(()=>{getDoc(CFG).then(s=>{if(s.exists())setCfg(c=>({...c,...s.data()}));});}, []);
 
-  const stats = useMemo(()=>{
-    if(sorted.length<2) return null;
-    const first=sorted[0], last=sorted[sorted.length-1];
-    const td=days(first.date,last.date), tk=last.value-first.value;
-    const apd=tk/td, py=apd*365;
-    const yc=py*cfg.pricePerKwh+cfg.monthlyBase*12;
-    const mc=py/12*cfg.pricePerKwh+cfg.monthlyBase;
-
-    const now=new Date(last.date);
-    const t2=new Date(now); t2.setDate(t2.getDate()-14);
-    const t4=new Date(now); t4.setDate(t4.getDate()-28);
-    const w1=sorted.findLast(r=>new Date(r.date)<=t2);
-    const w2=sorted.findLast(r=>new Date(r.date)<=t4);
-    let ac=null,ap=null,d14=null;
-    if(w1){const k=last.value-w1.value,d=days(w1.date,last.date);ac=d>0?k/d:null;}
-    if(w2&&w1){const k=w1.value-w2.value,d=days(w2.date,w1.date);ap=d>0?k/d:null;}
-    if(ac!=null&&ap!=null) d14=ac-ap;
-
-    const mo={};
-    for(let i=1;i<sorted.length;i++){
-      const p=sorted[i-1],c=sorted[i],mk=c.date.slice(0,7);
-      if(!mo[mk]) mo[mk]={kwh:0,days:0};
-      mo[mk].kwh+=c.value-p.value; mo[mk].days+=days(p.date,c.date);
-    }
-    const ma=Object.entries(mo).sort(([a],[b])=>a.localeCompare(b))
-      .map(([k,v])=>({label:["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"][+k.slice(5)-1],
-        kwh:v.kwh,days:v.days,avg:v.kwh/v.days,current:k===last.date.slice(0,7)}));
-    const sd=sorted.slice(1).map((r,i)=>{const p=sorted[i],d=days(p.date,r.date);return d>0?(r.value-p.value)/d:null;}).filter(Boolean);
-    return {first,last,td,tk,apd,py,yc,mc,ac,ap,d14,ma,sd};
-  },[sorted,cfg]);
+  const sortedM  = useMemo(()=>[...readingsM ].sort((a,b)=>a.date.localeCompare(b.date)),[readingsM]);
+  const sortedMu = useMemo(()=>[...readingsMu].sort((a,b)=>a.date.localeCompare(b.date)),[readingsMu]);
+  const sorted   = meter==="mutter" ? sortedMu : sortedM;
+  const isMutter = meter==="mutter";
 
   async function save(){
     if(!newVal||isNaN(+newVal)){toast2("❌ Ungültiger Zählerstand");return;}
     const v=parseFloat(newVal);
-    if(sorted.length&&v<=sorted[sorted.length-1].value){toast2("❌ Wert muss höher als letzter Eintrag sein");return;}
+    if(sorted.length&&v<=sorted[sorted.length-1].value){toast2("❌ Wert muss höher als letzter sein");return;}
     setStatus("syncing");
     try{
-      await setDoc(doc(COL,newDate),{date:newDate,value:v});
-      setNewVal(""); setStatus("ok"); setTab("dashboard");
-      toast2("✅ In Cloud gespeichert!"); setTimeout(()=>setStatus("live"),2000);
-    }catch{toast2("❌ Speichern fehlgeschlagen");setStatus("error");}
+      await setDoc(doc(COL(meter),newDate),{date:newDate,value:v});
+      setNewVal("");setStatus("ok");setTab("dashboard");
+      toast2("✅ In Cloud gespeichert!");setTimeout(()=>setStatus("live"),2000);
+    }catch{toast2("❌ Fehler");setStatus("error");}
   }
 
   async function del(r){
-    try{ await deleteDoc(doc(COL,r.date)); toast2("🗑 Gelöscht"); }
-    catch{ toast2("❌ Fehler beim Löschen"); }
+    try{await deleteDoc(doc(COL(meter),r.date));toast2("🗑 Gelöscht");}
+    catch{toast2("❌ Fehler");}
   }
 
-  async function saveCfg(s){ setCfg(s); await setDoc(CFG,s); }
-
+  async function saveCfg(s){setCfg(s);await setDoc(CFG,s);}
   function toast2(m){setToast(m);setTimeout(()=>setToast(null),2600);}
 
-  // ── styles ──────────────────────────────────────────────────────────────────
-  const sBot="env(safe-area-inset-bottom,20px)", sTop="env(safe-area-inset-top,44px)";
+  const sBot="env(safe-area-inset-bottom,20px)",sTop="env(safe-area-inset-top,44px)";
   const card={background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.09)",borderRadius:18,padding:16};
   const lbl={fontSize:11,fontWeight:600,letterSpacing:1.2,color:"rgba(255,255,255,0.38)",textTransform:"uppercase",marginBottom:10};
   const inp={width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,255,255,0.13)",
-    borderRadius:12,padding:"13px 15px",color:"#f0f4ff",fontSize:18,fontWeight:600,outline:"none",fontFamily:"inherit",appearance:"none"};
-  const statusMap={syncing:{c:"#93c5fd",i:"↻",l:"Sync…",spin:true},live:{c:"#34d399",i:"●",l:"Live"},
+    borderRadius:12,padding:"13px 15px",color:"#f0f4ff",fontSize:18,fontWeight:600,
+    outline:"none",fontFamily:"inherit",appearance:"none"};
+  const stMap={syncing:{c:"#93c5fd",i:"↻",l:"Sync…",spin:true},live:{c:"#34d399",i:"●",l:"Live"},
     ok:{c:"#34d399",i:"✓",l:"Gespeichert"},error:{c:"#f87171",i:"✕",l:"Offline"}};
-  const st=statusMap[status]||statusMap.live;
-
-  // ── loading screen ──────────────────────────────────────────────────────────
-  if(!ready) return React.createElement("div",{style:{display:"flex",flexDirection:"column",
-    alignItems:"center",justifyContent:"center",height:"100vh",gap:16,color:"rgba(255,255,255,0.5)"}},
-    React.createElement("div",{style:{fontSize:44}},"⚡"),
-    React.createElement("div",{style:{fontSize:14}},"Verbinde mit Cloud…"),
-    React.createElement("div",{style:{width:32,height:32,border:"3px solid rgba(255,255,255,0.1)",
-      borderTop:"3px solid #34d399",borderRadius:"50%",animation:"spin .8s linear infinite"}})
-  );
-
-  // ── helpers for JSX-free render ──────────────────────────────────────────────
-  const e = React.createElement;
-  const Row = (k,v) => e("div",{key:k,style:{display:"flex",justifyContent:"space-between",
-    borderBottom:"1px solid rgba(255,255,255,0.05)",paddingBottom:7,marginBottom:7}},
-    e("span",{style:{fontSize:13,color:"rgba(255,255,255,0.48)"}},k),
-    e("span",{style:{fontSize:13,fontWeight:600}},v));
+  const st=stMap[status]||stMap.live;
+  const accentColor=isMutter?"#a78bfa":"#34d399";
 
   const tabs=[{id:"dashboard",icon:"⚡",label:"Übersicht"},{id:"eingabe",icon:"＋",label:"Ablesen"},
               {id:"verlauf",icon:"📋",label:"Verlauf"},{id:"settings",icon:"⚙️",label:"Einstellungen"}];
 
+  if(!ready) return e("div",{style:{display:"flex",flexDirection:"column",alignItems:"center",
+    justifyContent:"center",height:"100vh",gap:16,color:"rgba(255,255,255,0.5)"}},
+    e("div",{style:{fontSize:44}},"⚡"),
+    e("div",{style:{fontSize:14}},"Verbinde mit Cloud…"),
+    e("div",{style:{width:32,height:32,border:"3px solid rgba(255,255,255,0.1)",
+      borderTop:"3px solid #34d399",borderRadius:"50%",animation:"spin .8s linear infinite"}})
+  );
+
   return e("div",{style:{maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"#0a0f1e",
     paddingBottom:`calc(72px + ${sBot})`}},
 
-    // header
-    e("div",{style:{background:"linear-gradient(160deg,#0f172a,#1a3a60)",
-      paddingTop:`calc(${sTop} + 12px)`,paddingBottom:18,paddingLeft:20,paddingRight:20,
+    // ── Header ───────────────────────────────────────────────────────────────
+    e("div",{style:{background:`linear-gradient(160deg,#0f172a,${isMutter?"#2d1b69":"#1a3a60"})`,
+      paddingTop:`calc(${sTop} + 10px)`,paddingBottom:14,paddingLeft:16,paddingRight:16,
       borderBottom:"1px solid rgba(255,255,255,0.06)"}},
-      e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}},
+
+      // meter switcher
+      e("div",{style:{display:"flex",gap:8,marginBottom:12}},
+        ["martin","mutter"].map(m=>e("button",{key:m,onClick:()=>setMeter(m),style:{
+          flex:1,padding:"8px 0",borderRadius:12,border:"none",cursor:"pointer",fontSize:13,fontWeight:700,
+          background:meter===m?(m==="mutter"?"rgba(167,139,250,0.2)":"rgba(52,211,153,0.15)"):"rgba(255,255,255,0.05)",
+          color:meter===m?(m==="mutter"?"#a78bfa":"#34d399"):"rgba(255,255,255,0.4)",
+          transition:"all .2s"
+        }}, m==="martin"?"⚡ Martin":"👵 Mutter"))
+      ),
+
+      e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}},
         e("div",null,
-          e("div",{style:{fontSize:11,letterSpacing:2,color:"rgba(255,255,255,0.38)",textTransform:"uppercase",marginBottom:4}},"⚡ Strom Tracker"),
-          e("div",{style:{fontSize:26,fontWeight:700,letterSpacing:-0.5}},
+          e("div",{style:{fontSize:11,letterSpacing:2,color:"rgba(255,255,255,0.35)",textTransform:"uppercase",marginBottom:2}},
+            isMutter?"Zähler Mutter":"Mein Zähler"),
+          e("div",{style:{fontSize:24,fontWeight:700,letterSpacing:-0.5}},
             {dashboard:"Übersicht",eingabe:"Zählerstand",verlauf:"Verlauf",settings:"Einstellungen"}[tab])
         ),
-        e("div",{style:{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}},
+        e("div",{style:{textAlign:"right",display:"flex",flexDirection:"column",alignItems:"flex-end",gap:3}},
           e("span",{style:{display:"inline-flex",alignItems:"center",gap:4,fontSize:11,color:st.c,fontWeight:600}},
             e("span",{style:{display:"inline-block",animation:st.spin?"spin 1s linear infinite":"none"}},st.i)," ",st.l),
-          stats&&tab==="dashboard"&&[
-            e("div",{key:"d",style:{fontSize:13,fontWeight:600,color:"#93c5fd"}},dmy(stats.last.date)),
-            e("div",{key:"v",style:{fontSize:12,color:"rgba(255,255,255,0.5)"}},stats.last.value.toLocaleString("de-DE")+" kWh")
+          sorted.length>0&&tab==="dashboard"&&[
+            e("div",{key:"d",style:{fontSize:12,fontWeight:600,color:"#93c5fd"}},dmy(sorted[sorted.length-1].date)),
+            e("div",{key:"v",style:{fontSize:11,color:"rgba(255,255,255,0.5)"}},
+              sorted[sorted.length-1].value.toLocaleString("de-DE")+" kWh")
           ]
         )
       )
     ),
 
-    // content
-    e("div",{style:{padding:"16px 16px 0",animation:"slideUp .3s ease"}},
+    // ── Content ──────────────────────────────────────────────────────────────
+    e("div",{style:{padding:"14px 14px 0",animation:"slideUp .3s ease"}},
 
       // DASHBOARD
-      tab==="dashboard"&&stats&&e("div",{style:{display:"flex",flexDirection:"column",gap:12}},
-        // trend card
-        e("div",{style:card},
-          e("div",{style:lbl},"Tagesverbrauch – letzte 2 Wochen"),
-          e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
-            e("div",{style:{fontSize:34,fontWeight:700,letterSpacing:-1}},
-              fmt(stats.ac),e("span",{style:{fontSize:14,fontWeight:400,color:"rgba(255,255,255,0.45)",marginLeft:4}},"kWh/Tag")),
-            e(Delta,{v:stats.d14})
-          ),
-          e(Spark,{data:stats.sd}),
-          stats.ap!=null&&e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.38)",marginTop:6}},
-            "Vorherige 2 Wochen: "+fmt(stats.ap)+" kWh/Tag")
-        ),
-        // kpi grid
-        e("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}},
-          [{l:"Ø Tag gesamt",v:fmt(stats.apd),u:"kWh"},
-           {l:"Hochrechn. Jahr",v:fmt(stats.py,0),u:"kWh"},
-           {l:"Jahreskosten",v:eur(stats.yc),u:"inkl. Grundgeb.",accent:"#34d399"},
-           {l:"Monatskosten",v:eur(stats.mc),u:"Hochrechnung"}
-          ].map((k,i)=>e("div",{key:i,style:{...card,...(k.accent?{background:"linear-gradient(135deg,rgba(5,150,105,0.22),rgba(16,185,129,0.1))"}:{})}},
-            e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.42)",marginBottom:4}},k.l),
-            e("div",{style:{fontSize:26,fontWeight:700,letterSpacing:-0.5,color:k.accent||"#f0f4ff",lineHeight:1}},k.v),
-            e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.32)",marginTop:3}},k.u)
-          ))
-        ),
-        // monthly bars
-        e("div",{style:card},
-          e("div",{style:lbl},"Monatsverbrauch"),
-          e(Bars,{data:stats.ma}),
-          e("div",{style:{display:"flex",gap:5,flexWrap:"wrap",marginTop:8}},
-            stats.ma.map((m,i)=>e("div",{key:i,style:{fontSize:10.5,padding:"3px 9px",borderRadius:7,
-              background:m.current?"rgba(52,211,153,0.14)":"rgba(255,255,255,0.06)",
-              color:m.current?"#34d399":"rgba(255,255,255,0.48)"}},m.label+": "+fmt(m.kwh,0)+" kWh"))
-          )
-        ),
-        // detail table
-        e("div",{style:card},
-          e("div",{style:lbl},"Gesamtübersicht"),
-          [["Gesamt verbraucht",stats.tk.toLocaleString("de-DE")+" kWh"],
-           ["Erfasste Tage",stats.td+" Tage"],
-           ["Anzahl Ablesungen",""+sorted.length],
-           ["Zählerstand Start",stats.first.value.toLocaleString("de-DE")+" kWh"],
-           ["Zählerstand aktuell",stats.last.value.toLocaleString("de-DE")+" kWh"],
-           ["Preis / kWh",cfg.pricePerKwh.toFixed(4).replace(".",",")+" €"],
-           ["Grundgebühr / Monat",cfg.monthlyBase.toFixed(2).replace(".",",")+" €"],
-          ].map(([k,v])=>Row(k,v))
-        )
-      ),
+      tab==="dashboard"&&e(MeterPanel,{sorted,cfg,isMutter}),
 
       // EINGABE
       tab==="eingabe"&&e("div",{style:{display:"flex",flexDirection:"column",gap:14}},
+        e("div",{style:{...card,borderColor:isMutter?"rgba(167,139,250,0.2)":"rgba(255,255,255,0.09)"}},
+          e("div",{style:{...lbl,color:isMutter?"rgba(167,139,250,0.7)":"rgba(255,255,255,0.38)"}},
+            isMutter?"👵 Zähler Mutter":"⚡ Mein Zähler"),
+          e("div",{style:{fontSize:12,color:"rgba(255,255,255,0.4)"}},
+            "Letzter Stand: "+(sorted.length?sorted[sorted.length-1].value.toLocaleString("de-DE")+" kWh am "+dmy(sorted[sorted.length-1].date):"–"))
+        ),
         e("div",{style:card},
           e("div",{style:lbl},"Datum"),
           e("input",{type:"date",value:newDate,onChange:ev=>setNewDate(ev.target.value),style:inp})
@@ -311,38 +447,49 @@ function App(){
         e("div",{style:card},
           e("div",{style:lbl},"Zählerstand (kWh)"),
           e("input",{type:"number",inputMode:"decimal",step:"0.1",
-            placeholder:sorted.length?"> "+sorted[sorted.length-1].value:"z.B. 13500",
-            value:newVal,onChange:ev=>setNewVal(ev.target.value),style:{...inp,fontSize:32,fontWeight:700}}),
+            placeholder:sorted.length?"> "+sorted[sorted.length-1].value:"z.B. 7500",
+            value:newVal,onChange:ev=>setNewVal(ev.target.value),
+            style:{...inp,fontSize:32,fontWeight:700,
+              borderColor:isMutter?"rgba(167,139,250,0.3)":"rgba(255,255,255,0.13)"}}),
           newVal&&sorted.length>=1&&(()=>{
-            const last=sorted[sorted.length-1], kwh=parseFloat(newVal)-last.value, d=days(last.date,newDate);
-            if(d<=0||kwh<=0) return e("div",{style:{marginTop:10,fontSize:12,color:"#f87171"}},"⚠ Datum oder Wert ungültig");
+            const last=sorted[sorted.length-1],kwh=parseFloat(newVal)-last.value,d=daysB(last.date,newDate);
+            if(d<=0||kwh<=0)return e("div",{style:{marginTop:10,fontSize:12,color:"#f87171"}},"⚠ Datum oder Wert ungültig");
             return e("div",{style:{marginTop:10,padding:"10px 13px",background:"rgba(52,211,153,0.08)",borderRadius:10,fontSize:13}},
-              e("b",{style:{color:"#34d399"}},fmt(kwh)+" kWh")," in "+d+" Tagen → ",
+              e("b",{style:{color:accentColor}},fmt(kwh)+" kWh")," in "+d+" Tagen → ",
               e("b",{style:{color:"#93c5fd"}},fmt(kwh/d)+" kWh/Tag"));
           })()
         ),
-        e("button",{onClick:save,style:{padding:17,borderRadius:16,border:"none",
-          background:"linear-gradient(135deg,#059669,#34d399)",color:"#fff",fontSize:17,fontWeight:700,cursor:"pointer"}},
+        e("button",{onClick:save,style:{padding:17,borderRadius:16,border:"none",cursor:"pointer",
+          background:isMutter?"linear-gradient(135deg,#7c3aed,#a78bfa)":"linear-gradient(135deg,#059669,#34d399)",
+          color:"#fff",fontSize:17,fontWeight:700}},
           "☁️  In Cloud speichern")
       ),
 
       // VERLAUF
       tab==="verlauf"&&e("div",{style:{display:"flex",flexDirection:"column",gap:8}},
         [...sorted].reverse().map((r,ri)=>{
-          const idx=sorted.length-1-ri, prev=idx>0?sorted[idx-1]:null;
-          const kwh=prev?r.value-prev.value:null, d=prev?days(prev.date,r.date):null;
+          const idx=sorted.length-1-ri,prev=idx>0?sorted[idx-1]:null;
+          const kwh=prev?r.value-prev.value:null,d=prev?daysB(prev.date,r.date):null;
           const avg=kwh!=null&&d?kwh/d:null;
-          return e("div",{key:r.date,style:{...card,padding:"13px 15px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          const hasBkw=!isMutter&&r.date>=BKW_DATE;
+          return e("div",{key:r.date,style:{...card,padding:"12px 14px",
+            display:"flex",justifyContent:"space-between",alignItems:"center",
+            ...(hasBkw?{borderColor:"rgba(251,191,36,0.15)"}:{}),
+            ...(isMutter?{borderColor:"rgba(167,139,250,0.15)"}:{})}},
             e("div",null,
-              e("div",{style:{fontSize:15,fontWeight:600}},dmy(r.date)),
-              e("div",{style:{fontSize:12,color:"rgba(255,255,255,0.44)",marginTop:2}},
+              e("div",{style:{display:"flex",alignItems:"center",gap:6}},
+                e("div",{style:{fontSize:14,fontWeight:600}},dmy(r.date)),
+                hasBkw&&e("span",{style:{fontSize:10,color:"#fbbf24"}},"☀️")
+              ),
+              e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.44)",marginTop:2}},
                 r.value.toLocaleString("de-DE")+" kWh"+(kwh!=null?" · +"+fmt(kwh)+" kWh in "+d+"d":""))
             ),
-            e("div",{style:{display:"flex",alignItems:"center",gap:10}},
-              avg!=null&&e("span",{style:{fontSize:13,fontWeight:700,
-                color:avg>14?"#f87171":avg<12?"#34d399":"#93c5fd"}},fmt(avg)+" kWh/T"),
+            e("div",{style:{display:"flex",alignItems:"center",gap:8}},
+              avg!=null&&e("span",{style:{fontSize:12,fontWeight:700,
+                color:isMutter?(avg>6?"#f87171":avg<5?"#34d399":"#a78bfa"):
+                      (avg>14?"#f87171":avg<12?"#34d399":"#93c5fd")}},fmt(avg)+" kWh/T"),
               idx>0&&e("button",{onClick:()=>del(r),style:{background:"rgba(239,68,68,0.14)",border:"none",
-                borderRadius:8,color:"#f87171",padding:"5px 10px",fontSize:15,cursor:"pointer"}},"✕")
+                borderRadius:8,color:"#f87171",padding:"4px 9px",fontSize:14,cursor:"pointer"}},"✕")
             )
           );
         })
@@ -350,46 +497,63 @@ function App(){
 
       // SETTINGS
       tab==="settings"&&e("div",{style:{display:"flex",flexDirection:"column",gap:12}},
-        e("div",{style:card},
-          e("div",{style:lbl},"Preis pro kWh (€)"),
+        // Martin settings
+        e("div",{style:{...card,borderColor:"rgba(52,211,153,0.2)"}},
+          e("div",{style:{...lbl,color:"rgba(52,211,153,0.7)"}},"⚡ Mein Zähler – Tarif"),
+          e("div",{style:{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:10}},"Preis / kWh"),
           e("input",{type:"number",inputMode:"decimal",step:"0.0001",value:cfg.pricePerKwh,
             onChange:ev=>saveCfg({...cfg,pricePerKwh:parseFloat(ev.target.value)||0}),style:inp}),
-          e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.33)",marginTop:7}},"Rhenag aktuell: 0,3017 €/kWh")
-        ),
-        e("div",{style:card},
-          e("div",{style:lbl},"Grundgebühr / Monat (€)"),
+          e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:6}},"Rhenag: 0,3017 €/kWh"),
+          e("div",{style:{fontSize:12,color:"rgba(255,255,255,0.4)",margin:"10px 0 6px"}},"Grundgebühr / Monat"),
           e("input",{type:"number",inputMode:"decimal",step:"0.01",value:cfg.monthlyBase,
             onChange:ev=>saveCfg({...cfg,monthlyBase:parseFloat(ev.target.value)||0}),style:inp})
+        ),
+        // Mutter settings
+        e("div",{style:{...card,borderColor:"rgba(167,139,250,0.2)"}},
+          e("div",{style:{...lbl,color:"rgba(167,139,250,0.7)"}},"👵 Mutter – Tarif"),
+          e("div",{style:{fontSize:12,color:"rgba(255,255,255,0.4)",marginBottom:10}},"Preis / kWh"),
+          e("input",{type:"number",inputMode:"decimal",step:"0.0001",value:cfg.pricePerKwhMutter,
+            onChange:ev=>saveCfg({...cfg,pricePerKwhMutter:parseFloat(ev.target.value)||0}),style:inp}),
+          e("div",{style:{fontSize:11,color:"rgba(255,255,255,0.3)",marginTop:6}},"Standard: 0,3017 €/kWh"),
+          e("div",{style:{fontSize:12,color:"rgba(255,255,255,0.4)",margin:"10px 0 6px"}},"Grundgebühr / Monat"),
+          e("input",{type:"number",inputMode:"decimal",step:"0.01",value:cfg.monthlyBaseMutter,
+            onChange:ev=>saveCfg({...cfg,monthlyBaseMutter:parseFloat(ev.target.value)||0}),style:inp})
+        ),
+        e("div",{style:card},
+          e("div",{style:lbl},"Balkonkraftwerk installiert am"),
+          e("input",{type:"date",value:cfg.bkwDate||BKW_DATE,
+            onChange:ev=>saveCfg({...cfg,bkwDate:ev.target.value}),style:inp})
         ),
         e("div",{style:{...card,background:"rgba(52,211,153,0.05)",borderColor:"rgba(52,211,153,0.15)"}},
           e("div",{style:lbl},"Cloud-Sync"),
           e("div",{style:{fontSize:13,lineHeight:1.8,color:"rgba(255,255,255,0.6)"}},
-            e("b",{style:{color:"#34d399"}},"Echtzeit-Synchronisation aktiv"),e("br"),
-            "Alle Geräte sehen Änderungen sofort.",e("br"),e("br"),
+            e("b",{style:{color:"#34d399"}},"Echtzeit-Sync aktiv"),e("br"),
+            "Beide Zähler werden live synchronisiert.",e("br"),e("br"),
             "Projekt: ",e("span",{style:{color:"#93c5fd",fontFamily:"monospace",fontSize:12}},"strom-tracker-28be4")
           )
         )
       )
     ),
 
-    // bottom nav
-    e("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,
-      background:"rgba(8,13,26,0.96)",backdropFilter:"blur(24px) saturate(180%)",
+    // ── Bottom Nav ────────────────────────────────────────────────────────────
+    e("div",{style:{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",
+      width:"100%",maxWidth:430,background:"rgba(8,13,26,0.96)",backdropFilter:"blur(24px) saturate(180%)",
       borderTop:"1px solid rgba(255,255,255,0.07)",display:"flex",paddingTop:8,
       paddingBottom:`calc(8px + ${sBot})`}},
       tabs.map(t=>e("button",{key:t.id,onClick:()=>setTab(t.id),style:{flex:1,background:"none",border:"none",
         cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"4px 0",
-        color:tab===t.id?"#34d399":"rgba(255,255,255,0.38)",transition:"color .2s"}},
+        color:tab===t.id?accentColor:"rgba(255,255,255,0.38)",transition:"color .2s"}},
         e("span",{style:{fontSize:22}},t.icon),
         e("span",{style:{fontSize:10,fontWeight:tab===t.id?700:400}},t.label)
       ))
     ),
 
-    // toast
+    // ── Toast ─────────────────────────────────────────────────────────────────
     toast&&e("div",{style:{position:"fixed",bottom:`calc(80px + ${sBot})`,left:"50%",
-      transform:"translateX(-50%)",background:"rgba(12,20,40,0.97)",border:"1px solid rgba(255,255,255,0.13)",
-      padding:"11px 22px",borderRadius:14,fontSize:14,fontWeight:600,
-      boxShadow:"0 8px 32px rgba(0,0,0,0.5)",animation:"fadeIn .2s ease",whiteSpace:"nowrap"}},toast)
+      transform:"translateX(-50%)",background:"rgba(12,20,40,0.97)",
+      border:"1px solid rgba(255,255,255,0.13)",padding:"11px 22px",borderRadius:14,
+      fontSize:14,fontWeight:600,boxShadow:"0 8px 32px rgba(0,0,0,0.5)",
+      animation:"fadeIn .2s ease",whiteSpace:"nowrap"}},toast)
   );
 }
 
